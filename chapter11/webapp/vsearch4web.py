@@ -1,7 +1,8 @@
-from flask import Flask, render_template, request, escape, session
+from flask import Flask, render_template, request, escape, session, copy_current_request_context
 from vsearch import search4letters
 from DBcm import UseDatabase, ConnectionError, CredentialsError, SQLError
 from checker import check_logged_in
+from threading import Thread
 
 
 app = Flask(__name__)
@@ -11,7 +12,13 @@ app.config['dbconfig'] = { 'host': '127.0.0.1',
                            'user': 'vsearch',
                            'password':'vsearchpasswd',
                            'database':'vsearchlogDB', }
-def log_request(req: 'flask-request', res: str) -> None:
+
+
+@app.route('/search4', methods=['POST'])
+def do_search() -> str:
+    
+    @copy_current_request_context
+    def log_request(req: 'flask-request', res: str) -> None:
     """ Log details of the web request and the results."""
     with UseDatabase(app.config['dbconfig']) as cursor:
         _SQL = """insert into log
@@ -23,16 +30,14 @@ def log_request(req: 'flask-request', res: str) -> None:
                               req.remote_addr,
                               req.user_agent.browser,
                               res, ))
-
-
-@app.route('/search4', methods=['POST'])
-def do_search() -> str:
+        
     phrase = request.form['phrase']
     letters = request.form['letters']
     title = 'Here are your results: '
     results = str(search4letters(phrase, letters))
     try:
-        log_request(request, results)
+        t = Thread(target=log_request, args=(request, results))
+        t.start()
     except Exception as err:
         print('*****Logging failed with this error:', str(err))
     return render_template('results.html', the_title=title, the_phrase=phrase, the_letters=letters, the_results=results)
